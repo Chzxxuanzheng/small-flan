@@ -422,7 +422,6 @@ class Flan(DesktopPet):
 		if self.allowWalk:
 			self.walkSwitchAction.setText('禁止走路')
 		else:
-			self.walkStep = 0
 			self.walkSwitchAction.setText('允许走路')
 		if self.allowVideo:
 			self.videoSwitchAction.setText('禁用音频')
@@ -435,6 +434,35 @@ class Flan(DesktopPet):
 		self.tray.setContextMenu(trayMenu)
 		# 展示
 		self.tray.show()
+
+
+	# 宠物右键点击交互
+	def contextMenuEvent(self, event):
+		# 定义菜单
+		menu = QMenu(self)
+		# 定义菜单项
+		food = menu.addAction('召唤草莓')
+		food.setIcon(QIcon('./assets/food.png'))
+		menu.addSeparator()
+		if self.allowWalk:
+			walkSwitch = menu.addAction('禁止走路')
+		else:
+			walkSwitch = menu.addAction('允许走路')
+		if self.allowVideo:
+			videoSwitch = menu.addAction('禁用音频')
+		else:
+			videoSwitch = menu.addAction('启用音频')
+		quit = menu.addAction('退出')
+
+		action = menu.exec_(self.mapToGlobal(event.pos()))
+		if action == food:
+			self.food()
+		elif action == walkSwitch:
+			self.walkSwitch()
+		elif action == videoSwitch:
+			self.videoSwitch()
+		elif action == quit:
+			self.quit()
 
 	def initPosition(self):
 		'''
