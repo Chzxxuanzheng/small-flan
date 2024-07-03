@@ -1,81 +1,19 @@
 import os
 import sys
-from PyQt5.QtGui import QIcon, QMovie, QCursor
-from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtGui import QIcon, QMovie, QCursor, QPixmap
+from PyQt5.QtCore import Qt, QSize, QTimer, QPoint
 from PyQt5.QtWidgets import QApplication, QWidget, QMenu, QLabel\
 	, QVBoxLayout, QSystemTrayIcon, QDesktopWidget, QAction
 
-from importlib.util import module_from_spec, spec_from_file_location
 import logging
-from typing import Any
+from typing import Any, overload
 
-from interface import *
-
-logging.basicConfig(level=logging.DEBUG)
-
-def loadModule(path: str) -> object:
-	spec = spec_from_file_location('module_name', path)
-	module = module_from_spec(spec)
-	spec.loader.exec_module(module)
-	return module
+logging.basicConfig(level=logging.INFO)
 
 class DesktopPet(QWidget):
-	modules: list[IModule] = []
-
-	def __init__(self, parent=None, **kwargs):
-		super(DesktopPet, self).__init__(parent)
-		# 加载插件
-		self.loadPlugins()
-		# 窗体初始化
-		self.initWindow()
-		# 托盘化初始
-		self.initTray()
-		# 展示
-		self.show()
-
-	def loadPlugins(self) -> None:
-		'''
-		加载模块用,模块位于plugins的文件夹里,模板看base.py
-		'''
-		logging.info('-------------------------------')
-		logging.info('开始加载模块')
-		cwd = os.getcwd()
-		for moduleDirName in os.listdir('./plugins'):
-			moduleCwd = f'./plugins/{moduleDirName}'
-			modulePath = f'{moduleCwd}/main.py'
-			if not os.path.exists(modulePath):continue
-			# 进入cwd,设置path
-			os.chdir(cwd)
-			os.chdir(moduleCwd)
-			sys.path.append('./')
-			module = loadModule('./main.py')
-			module.moduleInit(self)
-			try:
-				module.moduleInit(self)
-			except AttributeError:
-				...
-			property = dir(module)
-			if 'moduleName' not in property:
-				logging.error(f'{modulePath}缺少模块名')
-				continue
-			if 'preference' not in property:
-				logging.warning(f'{module.moduleName}缺少优先级')
-				module.preference = 500
-			else:
-				if type(module.preference) != int:
-					logging.warning(f'{module.moduleName}优先级不为整数')
-					module.preference = 500
-			# 设置cwd
-			module.cwd = os.getcwd()
-			self.modules.append(module)
-		os.chdir(cwd)
-		logging.info(f'共计加载{len(self.modules)}个模块:')
-		self.modules.sort(key=lambda module: module.preference)
-		logging.info('-------------------------------')
-		[logging.info(i.moduleName) for i in self.modules]
-
-	# 窗体初始化
-	def initWindow(self):
+	center: QPoint = QPoint(0,0)
+	def __init__(self, parent=None, **kwargs) -> None:
+		super(DesktopPet,self).__init__(parent=parent)
 		# 初始化
 		# 设置窗口属性:窗口无标题栏且固定在最前面
 		# FrameWindowHint:无边框窗口
@@ -90,95 +28,341 @@ class DesktopPet(QWidget):
 		# 重绘组件、刷新
 		self.repaint()
 
-		# 插件
-		[... for _ in self.modulesFor('initWindow')]
+	def setCenter(self, ax: int|QPoint, ay: int|None=None)->None:
+		if isinstance(ax, QPoint): self.center = ax
+		else: self.center = QPoint(ax,ay)
+
+	def move(self, ax: int|QPoint, ay: int|None=None)->None:
+		if isinstance(ax, QPoint): super().move(ax-self.center)
+		else: self.move(QPoint(ax,ay))
+
+	def x(self) -> int: return super().x()+self.center.x()
+	def y(self) -> int: return super().y()+self.center.y()
+
+	def pos(self)->QPoint:return super().pos()+self.center
+
+class Food(DesktopPet):
+	# 初始化界面
+	def __init__(self, father, **kwargs):
+		super().__init__(parent=None)
+		self.initWindow()
+		self.setFocus()
+
+		self.father: DesktopPet = father
+
+		self.followTimer = QTimer()
+		self.followTimer.timeout.connect(self.followMouse)
+		self.followTimer.start(40)
+
+		self.downTimer = QTimer()
+		self.downTimer.timeout.connect(self.down)
+
+		self.suckTimer = QTimer()
+		self.suckTimer.timeout.connect(self.beSucked)
+
+	def followMouse(self):
+		self.move(QCursor.pos().x()-17,QCursor.pos().y()-14)
+
+	def down(self):
+		add = self.father.y() - 13 - self.y()
+		if add == 0:
+			self.father.walkStep = 0
+			self.downTimer.stop()
+		if add > 10:add = 20
+		elif add < -10: add = -20
+		self.move(self.x(),self.y()+add)
+
+	def startBeSucked(self):
+		self.downTimer.stop()
+		self.suckTimer.start(40)
+
+	def beAte(self):
+		self.destroy()
+
+	times = 1
+	def beSucked(self):
+		move = self.times * 5
+		if self.father.toward == self.father.RIGHT:
+			distance = ((self.x() - self.father.x() - 20) ** 2 + (self.father.y() - 30 - self.y()) ** 2)**0.5
+		else:
+			distance = ((self.x() - self.father.x() + 20) ** 2 + (self.father.y() - 30 - self.y()) ** 2)**0.5
+		if distance < 5:
+			self.father.eat()
+			return
+		if move > distance: move = distance
+		y = -int(move*abs(self.father.y() - 30 - self.y())/distance)
+		if self.father.toward == self.father.RIGHT:
+			x = -int(move * abs(self.x() - 20 - self.father.x())/distance)
+		else:
+			x = int(move * abs(self.x() + 20 - self.father.x())/distance)
+		self.move(self.pos()+QPoint(x,y))
+		self.times += 1
+
+	# 窗体初始化
+	def initWindow(self):
+		self.image = QLabel()
+		# 初始化动画
+		img = QPixmap('./assets/food.png')
+		self.image.setPixmap(img.scaled(35,27,Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+
+		vbox = QVBoxLayout()
+		vbox.addWidget(self.image)
+
+		self.setLayout(vbox)
+
+		# 设置中心
+		self.setCenter(17,14)
+
+		# 拖动时鼠标图形的设置
+		self.setCursor(QCursor(Qt.OpenHandCursor))
+
+	# 鼠标左键按下时, 释放草莓
+	def mousePressEvent(self, event):
+		if event.button() == Qt.LeftButton:
+			self.followTimer.stop()
+			self.downTimer.start(40)
+		event.accept()
+		# 还原鼠标设置
+		self.setCursor(QCursor(Qt.ArrowCursor))
+
+class Flan(DesktopPet):
+	# 枚举
+	# 朝向
+	LEFT: int = 0
+	RIGHT: int = 1
+
+	# flag
+	STAND: int = 0
+	WALK: int = 1
+	SUCK: int = 2
+	EAT: int = 3
+	FIND_FOOD: int = 4
+	WAIT_FOOD: int = 5
+
+
+	# 动画flag
+	PLAYING: int = 1
+	STOP: int = 0
+
+	toward: int = RIGHT
+	flag: int = 0
+	movieFlag: int = 0
+	posY: int = 0
+	foodW: Food = None
+
+	def __init__(self):
+		super().__init__()
+		# 托盘化初始
+		self.initTray()
+		# 初始化窗体
+		self.initWindow()
+		# 展示
+		self.show()
+		self.movieTimer = QTimer()
+		self.movieTimer.timeout.connect(self.movieAfter)
+		self.movieTimer.start(40)
+
+	def changeMovie(self, name: str):
+		self.movie = QMovie(self.assets(name))
+		# 设置标签大小
+		self.movie.setScaledSize(QSize(250, 220))
+		# 将QMovie在定义的image中显示
+		self.image.setMovie(self.movie)
+		self.movie.start()
+		self.movie.frameChanged.connect(self.moviePlay)
+
+	def assets(self, name: str,lastName: str = 'webp'):
+		return f'./assets/{name}-{"l" if self.toward == self.LEFT else "r"}.{lastName}'
+
+	# 动画决策区 
+
+	# 走路
+	# 每走一次要162的距离
+	walkStep = 0
+	allowWalk = True
+	def walk(self):
+		from random import randint
+		if randint(0,5) != 0:return False
+		if not self.allowWalk: return False
+
+		screen_geo = QDesktopWidget().screenGeometry()
+		pet_geo = self.geometry()
+
+		# 计算有多少地方可以蹦
+		if self.toward == self.LEFT:
+			place = self.x() - pet_geo.width() / 2
+			max = place // 162
+		elif self.toward == self.RIGHT:
+			place = screen_geo.width() - self.x() - pet_geo.width() / 2
+			max = place // 162
+
+		# 没地方蹦
+		if max <= 0: return False
+
+		self.walkStep = randint(1,max)
+		return True
+
+	# 转向
+	def turnToward(self):
+		from random import randint
+		if randint(0,5) != 0:return False
+
+		if self.toward == self.LEFT:
+			self.toward = self.RIGHT
+		else:
+			self.toward = self.LEFT
+		return True
+	
+	# 前往食物
+	def toFood(self):
+		distance = self.x() - self.foodW.x()
+		if distance < 0:
+			self.toward = self.RIGHT
+		else:
+			self.toward = self.LEFT
+		distance = abs(distance)
+		place = distance // 162
+		# 可以吃到
+		if place == 0: 
+			self.suck()
+			return True
+		else:
+			return False
+
+	# 动画播放完一遍后的处理区
+
+	def movieAfter(self):
+		if not self.moviePlayAfter: return
+		# 正在前进
+		if self.walkStep > 0:
+			self.walkStep -= 1
+			self.forward()
+		# 选择动画
+		else:
+			# 吸食物特殊处理
+			if self.flag == self.WAIT_FOOD:
+				self.moviePlayAfter = False
+				return
+			elif self.foodW:
+				if not self.toFood():self.forward()
+			# 走路
+			elif self.walk():
+				self.walkStep -= 1
+				self.forward()
+			# 转向
+			elif self.turnToward(): 
+				self.stand()
+			# 啥都没有就站尸
+			else:
+				self.stand()
+
+	# 动画执行区
+
+	def appear(self):
+		logging.debug('进入appear动画')
+		self.moviePlayAfter = False
+		self.changeMovie('appear')
+		self.flag = self.STAND
+
+	def stand(self):
+		logging.debug('进入stand动画')
+		self.moviePlayAfter = False
+		self.changeMovie('stand')
+		self.flag = self.STAND
+
+	# 前进
+	def forward(self):
+		logging.debug('进入walk动画')
+		self.moviePlayAfter = False
+		self.changeMovie('walk')
+		self.flag = self.WALK
+
+	def suck(self):
+		logging.debug('进入suck动画')
+		self.moviePlayAfter = False
+		self.changeMovie('suck')
+		self.flag = self.SUCK
+
+	def eat(self):
+		logging.debug('进入eat动画')
+		self.moviePlayAfter = False
+		self.changeMovie('eat')
+		self.flag = self.EAT
+
+	# 动画播放
+	moviePlayAfter = False
+	def moviePlay(self, frame: int):
+		# 播放完
+		if frame == self.movie.frameCount() - 1:
+			self.movie.stop()
+			if self.flag == self.SUCK:self.flag = self.WAIT_FOOD
+			self.moviePlayAfter = True
+		# 走路
+		if self.flag == self.WALK:
+			if 13 <= frame <= 42:
+				movieX = -5 if self.toward == self.LEFT else 5
+			elif 42 < frame <= 48:
+				movieX = -2 if self.toward == self.LEFT else 2
+			else:
+				movieX = 0
+			self.move(self.x()+movieX,self.y())
+		elif self.flag == self.SUCK:
+			if frame == 5:
+				self.foodW.startBeSucked()
+		elif self.flag == self.EAT:
+			if self.foodW:
+				self.foodW.beAte()
+				self.foodW = None
+
+	# 窗体初始化
+	def initWindow(self):
+		self.image = QLabel()
+		# 初始化动画
+		self.appear()
+
+		vbox = QVBoxLayout()
+		vbox.addWidget(self.image)
+
+		self.setLayout(vbox)
+
+		# 设置中心
+		self.setCenter(125,220)
+
+		# 设置位置
+		self.initPosition()
 
 	# 托盘化设置初始化
 	def initTray(self):
 		# 创建托盘图标
 		self.tray = QSystemTrayIcon(self)
-		# 设置托盘化图标
-		for icon in self.modulesFor('createTrayIcon'):
-			if isinstance(icon, QIcon):
-				self.tray.setIcon(icon)
-				break
-		else:
-			logging.error('托盘图标缺失')
+		self.tray.setIcon(QIcon('./assets/favicon.png'))
 
-		# 设置按钮
-		# 新建一个菜单项控件
-		self.trayMenu = None
-		for configs in self.modulesFor('createTrayChoiceList'):
-			if self.trayMenu: self.trayMenu.addSeparator()
-			else:self.trayMenu = QMenu(self)
-			for config in configs:
-				# 划线
-				if config[0] == '__line__':
-					self.trayMenu.addSeparator()
-				else:
-					action = QAction(config[0],self,triggered=config[1])
-					if type(config[2]) == QIcon:
-						action.setIcon(config[2])
-					self.trayMenu.addAction(action)
+		trayMenu = QMenu(self)
+
+		trayMenu.addAction(QAction('召唤草莓',self,triggered=self.food,icon=QIcon('./assets/food.png')))
+		self.walkSwitchAction = QAction('禁止走路',triggered=self.walkSwitch)
+		trayMenu.addAction(self.walkSwitchAction)
+		trayMenu.addAction(QAction('重设高度',self,triggered=self.resetHeight))
+		trayMenu.addAction(QAction('退出',self,triggered=self.quit))
 
 		# 设置托盘化菜单项
-		self.tray.setContextMenu(self.trayMenu)
+		self.tray.setContextMenu(trayMenu)
 		# 展示
 		self.tray.show()
 
-	# 宠物静态gif图加载
-	def initPet(self):
-		# 对话框定义
-		self.talkLabel = QLabel(self)
-		# 对话框样式设计
-		self.talkLabel.setStyleSheet("font:15pt '楷体';border-width: 1px;color:blue;")
-		# 定义显示图片部分
-		self.image = QLabel(self)
-		# QMovie是一个可以存放动态视频的类，一般是配合QLabel使用的,可以用来存放GIF动态图
-		self.movie = QMovie("./assets/stand-l.webp")
-		# 设置标签大小
-		self.movie.setScaledSize(QSize(200, 200))
-		# 将Qmovie在定义的image中显示
-		self.image.setMovie(self.movie)
-		self.movie.start()
-		self.resize(300, 300)
-
-		# 调用自定义的randomPosition，会使得宠物出现位置随机
-		self.randomPosition()
-
-		# 布局设置
-		vbox = QVBoxLayout()
-		vbox.addWidget(self.talkLabel)
-		vbox.addWidget(self.image)
-
-		#加载布局：前面设置好的垂直布局
-		self.setLayout(vbox)
-
-		# 展示
-		self.show()
-
-	# 宠物正常待机动作
-	def petNormalAction(self):
-		# 每隔一段时间做个动作
-		# 宠物状态设置为正常
-		self.condition = 0
-		# 对话状态设置为常态
-		self.talk_condition = 0
-
-	# 显示宠物
-	def showwin(self):
-		# setWindowOpacity（）设置窗体的透明度，通过调整窗体透明度实现宠物的展示和隐藏
-		self.setWindowOpacity(1)
-
-	# 宠物随机位置
-	def randomPosition(self):
-		# screenGeometry（）函数提供有关可用屏幕几何的信息
+	def initPosition(self):
+		'''
+		初始化位置
+		'''
+		import random
 		screen_geo = QDesktopWidget().screenGeometry()
-		# 获取窗口坐标系
 		pet_geo = self.geometry()
-		# width = (screen_geo.width() - pet_geo.width()) * random.random()
-		# height = (screen_geo.height() - pet_geo.height()) * random.random()
-		self.move(int(0), int(0))
+		x = int((screen_geo.width() - pet_geo.width()) * random.random())
+		if os.path.exists('./height'):
+			with open('./height', 'r')as f:self.posY = int(f.read())
+		y = self.posY
+		self.move(x,y)
+
 
 	# 鼠标左键按下时, 宠物将和鼠标位置绑定
 	def mousePressEvent(self, event):
@@ -208,96 +392,42 @@ class DesktopPet(QWidget):
 		self.is_follow_mouse = False
 		# 鼠标图形设置为箭头
 		self.setCursor(QCursor(Qt.ArrowCursor))
+		# 记录高度
+		self.posY = self.y()
+		with open('./height','w')as f:
+			f.write(str(self.posY))
 
 	# 鼠标移进时调用
 	def enterEvent(self, event):
 		# 设置鼠标形状 Qt.ClosedHandCursor   非指向手
 		self.setCursor(Qt.ClosedHandCursor)
 
-	# 宠物右键点击交互
-	def contextMenuEvent(self, event):
-		# 定义菜单
-		menu = QMenu(self)
-		# 定义菜单项
-		hide = menu.addAction("隐藏")
-		question_answer = menu.addAction("故事大会")
-		menu.addSeparator()
-		quitAction = menu.addAction("退出")
+	def food(self):
+		if self.foodW:return
+		self.foodW = Food(self)
+		self.foodW.show()
 
-		# 使用exec_()方法显示菜单。从鼠标右键事件对象中获得当前坐标。mapToGlobal()方法把当前组件的相对坐标转换为窗口（window）的绝对坐标。
-		action = menu.exec_(self.mapToGlobal(event.pos()))
-		# 点击事件为退出
-		if action == quitAction:
-			...
-		# 点击事件为隐藏
-		if action == hide:
-			# 通过设置透明度方式隐藏宠物
-			self.setWindowOpacity(0)
-		# 点击事件为故事大会
-		if action == question_answer:
-			# self.client = Client()
-			# self.client.show()
-			logging.info('test')
+	def walkSwitch(self):
+		self.allowWalk = not self.allowWalk
+		if self.allowWalk:
+			self.walkSwitchAction.setText('禁止走路')
+		else:
+			self.walkStep = 0
+			self.walkSwitchAction.setText('允许走路')
 
-	# ========================
-	# 模块使用相关
-	# ========================
+	def quit(self):
+		self.quit()
+		sys.exit()
 
-	def modulesFor(self,property: str,call=True,*args, **kwargs)->Any:
-		'''
-		遍历所有模块的指定属性
-		:params property: 属性
-		:params call: 是否调用,默认为True
-		:return: 属性
-		'''
-		for module in self.modules:
-			# 没有这个属性
-			if property not in dir(module): continue
-			# 调用这个属性
-			if call:
-				# 该属性不可调用
-				if not callable(getattr(module,property)):continue
-				try:
-					yield self.callModuleMethod(module, property, catch=False, *args, **kwargs)
-				except Exception as ex:
-					logging.exception(ex)
-			# 不调用这个属性
-			else: yield getattr(module,property)
-
-	@staticmethod
-	def callModuleMethod(module: IModule, method: str, catch:bool=True, *args, **kwargs)->Any:
-		'''
-		调用模块的方法,使用该方法会进入模块专属的cwd
-		:params module: 模块
-		:params catch: 是否捕捉异常
-		:params method: 方法名
-		:return: 方法返回值,如果捕获到异常会返回异常
-		'''
-
-		if catch:
-			try:
-				return DesktopPet.callModuleMethod(module, method, catch=False, *args, **kwargs)
-			except Exception as ex: 
-				logging.exception(ex)
-				return ex
-
-		property = getattr(module,method)
-		cwd = os.getcwd()
-		os.chdir(module.cwd)
-		result = property(*args, **kwargs)
-		os.chdir(cwd)
-		return result
+	def resetHeight(self):
+		self.move(self.x(),0)
+		self.height = 0
+		with open('./height','w')as f:
+			f.write('0')
 
 def main() -> None:
-	# 创建了一个QApplication对象，对象名为app，带两个参数argc,argv
-	# 所有的PyQt5应用必须创建一个应用（Application）对象。sys.argv参数是一个来自命令行的参数列表。
 	app = QApplication(sys.argv)
-	# 窗口组件初始化
-	pet = DesktopPet()
-	# 1. 进入时间循环；
-	# 2. wait，直到响应app可能的输入；
-	# 3. QT接收和处理用户及系统交代的事件（消息），并传递到各个窗口；
-	# 4. 程序遇到exit()退出时，机会返回exec()的值。
+	flan = Flan()
 	sys.exit(app.exec_())
 
 if __name__ == '__main__':
