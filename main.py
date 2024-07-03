@@ -404,7 +404,7 @@ class Flan(DesktopPet):
 	def initTray(self):
 		# 创建托盘图标
 		self.tray = QSystemTrayIcon(self)
-		self.tray.setIcon(QIcon('./assets/favicon.png'))
+		self.tray.setIcon(QIcon('./assets/favicon.ico'))
 
 		trayMenu = QMenu(self)
 
