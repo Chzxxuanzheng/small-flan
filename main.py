@@ -10,7 +10,26 @@ from PyQt5.QtMultimedia import QSound
 import logging
 from typing import Any, overload
 
+from json import load, dump
+
 logging.basicConfig(level=logging.INFO)
+
+# 加载配置
+def readConfig(key: str)->Any:
+	if not os.path.exists('./config'): return None
+	with open('./config', 'r')as f:
+		data = load(f)
+		if key not in data: return None
+		return data[key]
+
+# 设置配置
+def saveConfig(key: str, value: Any)->None:
+	if not os.path.exists('./config'): data = {}
+	else:
+		with open('./config', 'r')as f: data = load(f)
+	data[key] = value
+	with open('./config', 'w')as f:
+		dump(data,f)
 
 class DesktopPet(QWidget):
 	center: QPoint = QPoint(0,0)
@@ -155,6 +174,8 @@ class Flan(DesktopPet):
 	posY: int = 0
 	foodW: Food = None
 
+	allowVideo: bool = False
+	allowWalk: bool = True
 	def __init__(self):
 		super().__init__()
 		# 托盘化初始
@@ -163,9 +184,36 @@ class Flan(DesktopPet):
 		self.initWindow()
 		# 展示
 		self.show()
+
+		# 动画计时
 		self.movieTimer = QTimer()
 		self.movieTimer.timeout.connect(self.movieAfter)
 		self.movieTimer.start(40)
+
+		# 初始化配置
+		self.readConfig()
+
+	def readConfig(self):
+		# 行走开关
+		if allowWalk := readConfig('allowWalk'):
+			self.allowWalk = allowWalk
+		else: saveConfig('allowWalk',self.allowWalk)
+
+		# 音频开关
+		if allowVideo := readConfig('allowVideo'):
+			self.allowVideo = allowVideo
+		else: saveConfig('allowVideo', allowVideo)
+
+		# 高度
+		if posY := readConfig('height'):
+			self.posY = posY
+		else: self.posY = self.size().height()
+
+	# 保存配置
+	def saveConfig(self):
+		saveConfig('allowWalk', self.allowWalk)
+		saveConfig('allowVideo', self.allowVideo)
+		saveConfig('height', self.posY)
 
 	def changeMovie(self, name: str):
 		self.movie = QMovie(self.assets(name))
@@ -180,6 +228,7 @@ class Flan(DesktopPet):
 		return f'./assets/{name}-{"l" if self.toward == self.LEFT else "r"}.{lastName}'
 
 	def sound(self, name):
+		if not self.allowVideo: return
 		QSound.play(f'./assets/{name}.wav')
 
 	# 动画决策区 
@@ -187,7 +236,6 @@ class Flan(DesktopPet):
 	# 走路
 	# 每走一次要162的距离
 	walkStep = 0
-	allowWalk = True
 	def walk(self):
 		from random import randint
 		if randint(0,5) != 0:return False
@@ -361,8 +409,19 @@ class Flan(DesktopPet):
 		trayMenu = QMenu(self)
 
 		trayMenu.addAction(QAction('召唤草莓',self,triggered=self.food,icon=QIcon('./assets/food.png')))
-		self.walkSwitchAction = QAction('禁止走路',triggered=self.walkSwitch)
+		self.walkSwitchAction = QAction('',triggered=self.walkSwitch)
 		trayMenu.addAction(self.walkSwitchAction)
+		self.videoSwitchAction = QAction('',triggered=self.videoSwitch)
+		trayMenu.addAction(self.videoSwitchAction)
+		if self.allowWalk:
+			self.walkSwitchAction.setText('禁止走路')
+		else:
+			self.walkStep = 0
+			self.walkSwitchAction.setText('允许走路')
+		if self.allowVideo:
+			self.videoSwitchAction.setText('禁用音频')
+		else:
+			self.videoSwitchAction.setText('启用音频')
 		trayMenu.addAction(QAction('重设高度',self,triggered=self.resetHeight))
 		trayMenu.addAction(QAction('退出',self,triggered=self.quit))
 
@@ -379,9 +438,8 @@ class Flan(DesktopPet):
 		screen_geo = QDesktopWidget().screenGeometry()
 		pet_geo = self.geometry()
 		x = int((screen_geo.width() - pet_geo.width()) * random.random())
-		if os.path.exists('./height'):
-			with open('./height', 'r')as f:self.posY = int(f.read())
-		else:
+		self.posY = readConfig('height')
+		if not self.posY:
 			self.posY = self.size().height()
 		y = self.posY
 		self.move(x,y)
@@ -417,8 +475,7 @@ class Flan(DesktopPet):
 		self.setCursor(QCursor(Qt.ArrowCursor))
 		# 记录高度
 		self.posY = self.y()
-		with open('./height','w')as f:
-			f.write(str(self.posY))
+		saveConfig('height', self.posY)
 
 	# 鼠标移进时调用
 	def enterEvent(self, event):
@@ -438,7 +495,15 @@ class Flan(DesktopPet):
 			self.walkStep = 0
 			self.walkSwitchAction.setText('允许走路')
 
+	def videoSwitch(self):
+		self.allowVideo = not self.allowVideo
+		if self.allowVideo:
+			self.videoSwitchAction.setText('禁用音频')
+		else:
+			self.videoSwitchAction.setText('启用音频')
+
 	def quit(self):
+		self.saveConfig()
 		self.quit()
 		sys.exit()
 
