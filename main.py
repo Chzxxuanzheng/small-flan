@@ -5,6 +5,8 @@ from PyQt5.QtCore import Qt, QSize, QTimer, QPoint
 from PyQt5.QtWidgets import QApplication, QWidget, QMenu, QLabel\
 	, QVBoxLayout, QSystemTrayIcon, QDesktopWidget, QAction
 
+from PyQt5.QtMultimedia import QSound
+
 import logging
 from typing import Any, overload
 
@@ -92,9 +94,11 @@ class Food(DesktopPet):
 		if move > distance: move = distance
 		y = -int(move*abs(self.father.y() - 30 - self.y())/distance)
 		if self.father.toward == self.father.RIGHT:
-			x = -int(move * abs(self.x() - 20 - self.father.x())/distance)
+			x = int(move * abs(self.x() - 20 - self.father.x())/distance)
+			if self.x() - 20 - self.father.x() > 0:x=-x
 		else:
 			x = int(move * abs(self.x() + 20 - self.father.x())/distance)
+			if self.x() + 20 - self.father.x() > 0:x=-x
 		self.move(self.pos()+QPoint(x,y))
 		self.times += 1
 
@@ -138,6 +142,7 @@ class Flan(DesktopPet):
 	EAT: int = 3
 	FIND_FOOD: int = 4
 	WAIT_FOOD: int = 5
+	APPEAR: int = 6
 
 
 	# 动画flag
@@ -173,6 +178,9 @@ class Flan(DesktopPet):
 
 	def assets(self, name: str,lastName: str = 'webp'):
 		return f'./assets/{name}-{"l" if self.toward == self.LEFT else "r"}.{lastName}'
+
+	def sound(self, name):
+		QSound.play(f'./assets/{name}.wav')
 
 	# 动画决策区 
 
@@ -214,6 +222,7 @@ class Flan(DesktopPet):
 		return True
 	
 	# 前往食物
+	soundFlag: bool = True
 	def toFood(self):
 		distance = self.x() - self.foodW.x()
 		if distance < 0:
@@ -225,8 +234,13 @@ class Flan(DesktopPet):
 		# 可以吃到
 		if place == 0: 
 			self.suck()
+			self.soundFlag = True
 			return True
 		else:
+			if self.soundFlag:
+				from random import randint
+				self.sound(f'food{randint(1,3)}')
+				self.soundFlag = False
 			return False
 
 	# 动画播放完一遍后的处理区
@@ -262,7 +276,7 @@ class Flan(DesktopPet):
 		logging.debug('进入appear动画')
 		self.moviePlayAfter = False
 		self.changeMovie('appear')
-		self.flag = self.STAND
+		self.flag = self.APPEAR
 
 	def stand(self):
 		logging.debug('进入stand动画')
@@ -288,6 +302,7 @@ class Flan(DesktopPet):
 		self.moviePlayAfter = False
 		self.changeMovie('eat')
 		self.flag = self.EAT
+		self.sound('eat')
 
 	# 动画播放
 	moviePlayAfter = False
@@ -306,13 +321,19 @@ class Flan(DesktopPet):
 			else:
 				movieX = 0
 			self.move(self.x()+movieX,self.y())
+		# 吸
 		elif self.flag == self.SUCK:
 			if frame == 5:
 				self.foodW.startBeSucked()
+		# 吃
 		elif self.flag == self.EAT:
 			if self.foodW:
 				self.foodW.beAte()
 				self.foodW = None
+		# 出现
+		elif self.flag == self.APPEAR:
+			if frame == 40:
+				self.sound('appear')
 
 	# 窗体初始化
 	def initWindow(self):
@@ -360,6 +381,8 @@ class Flan(DesktopPet):
 		x = int((screen_geo.width() - pet_geo.width()) * random.random())
 		if os.path.exists('./height'):
 			with open('./height', 'r')as f:self.posY = int(f.read())
+		else:
+			self.posY = self.size().height()
 		y = self.posY
 		self.move(x,y)
 
@@ -420,10 +443,10 @@ class Flan(DesktopPet):
 		sys.exit()
 
 	def resetHeight(self):
-		self.move(self.x(),0)
-		self.height = 0
+		self.posY = self.size().height()
+		self.move(self.x(),self.posY)
 		with open('./height','w')as f:
-			f.write('0')
+			f.write(str(self.posY))
 
 def main() -> None:
 	app = QApplication(sys.argv)
