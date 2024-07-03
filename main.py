@@ -63,6 +63,10 @@ class DesktopPet(QWidget):
 	def pos(self)->QPoint:return super().pos()+self.center
 
 class Food(DesktopPet):
+	CATCH: int = 0
+	DOWN: int = 1
+
+	flag: int = 0
 	# 初始化界面
 	def __init__(self, father, **kwargs):
 		super().__init__(parent=None)
@@ -88,6 +92,7 @@ class Food(DesktopPet):
 		add = self.father.y() - 13 - self.y()
 		if add == 0:
 			self.father.walkStep = 0
+			self.flag = self.DOWN
 			self.downTimer.stop()
 		if add > 10:add = 20
 		elif add < -10: add = -20
@@ -178,6 +183,10 @@ class Flan(DesktopPet):
 	allowWalk: bool = True
 	def __init__(self):
 		super().__init__()
+
+		# 初始化配置
+		self.readConfig()
+
 		# 托盘化初始
 		self.initTray()
 		# 初始化窗体
@@ -189,9 +198,6 @@ class Flan(DesktopPet):
 		self.movieTimer = QTimer()
 		self.movieTimer.timeout.connect(self.movieAfter)
 		self.movieTimer.start(40)
-
-		# 初始化配置
-		self.readConfig()
 
 	def readConfig(self):
 		# 行走开关
@@ -305,7 +311,7 @@ class Flan(DesktopPet):
 			if self.flag == self.WAIT_FOOD:
 				self.moviePlayAfter = False
 				return
-			elif self.foodW:
+			elif self.foodW and self.foodW.flag == self.foodW.DOWN:
 				if not self.toFood():self.forward()
 			# 走路
 			elif self.walk():
