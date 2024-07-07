@@ -167,6 +167,7 @@ class Flan(DesktopPet):
 	FIND_FOOD: int = 4
 	WAIT_FOOD: int = 5
 	APPEAR: int = 6
+	DISAPPEAR: int = 7
 
 
 	# 动画flag
@@ -307,8 +308,11 @@ class Flan(DesktopPet):
 			self.forward()
 		# 选择动画
 		else:
+			# 退出
+			if self.flag == self.DISAPPEAR:
+				self.exit()
 			# 吸食物特殊处理
-			if self.flag == self.WAIT_FOOD:
+			elif self.flag == self.WAIT_FOOD:
 				self.moviePlayAfter = False
 				return
 			elif self.foodW and self.foodW.flag == self.foodW.DOWN:
@@ -357,6 +361,13 @@ class Flan(DesktopPet):
 		self.changeMovie('eat')
 		self.flag = self.EAT
 		self.sound('eat')
+
+	def disappear(self):
+		logging.debug('进入disappear动画')
+		self.moviePlayAfter = False
+		self.changeMovie('disappear')
+		self.flag = self.DISAPPEAR
+		self.sound('disappear')
 
 	# 动画播放
 	moviePlayAfter = False
@@ -412,13 +423,13 @@ class Flan(DesktopPet):
 		self.tray = QSystemTrayIcon(self)
 		self.tray.setIcon(QIcon('./assets/favicon.ico'))
 
-		trayMenu = QMenu(self)
+		self.trayMenu = QMenu(self)
 
-		trayMenu.addAction(QAction('召唤草莓',self,triggered=self.food,icon=QIcon('./assets/food.png')))
+		self.trayMenu.addAction(QAction('召唤草莓',self,triggered=self.food,icon=QIcon('./assets/food.png')))
 		self.walkSwitchAction = QAction('',triggered=self.walkSwitch)
-		trayMenu.addAction(self.walkSwitchAction)
+		self.trayMenu.addAction(self.walkSwitchAction)
 		self.videoSwitchAction = QAction('',triggered=self.videoSwitch)
-		trayMenu.addAction(self.videoSwitchAction)
+		self.trayMenu.addAction(self.videoSwitchAction)
 		if self.allowWalk:
 			self.walkSwitchAction.setText('禁止走路')
 		else:
@@ -427,42 +438,27 @@ class Flan(DesktopPet):
 			self.videoSwitchAction.setText('禁用音频')
 		else:
 			self.videoSwitchAction.setText('启用音频')
-		trayMenu.addAction(QAction('重设高度',self,triggered=self.resetHeight))
-		trayMenu.addAction(QAction('退出',self,triggered=self.quit))
+		self.trayMenu.addAction(QAction('重设高度',self,triggered=self.resetHeight))
+		self.trayMenu.addAction(QAction('退出',self,triggered=self.quit))
+
+		# css
+		with open('./assets/style.qss','r')as f:
+			self.setStyleSheet(f.read())
+		self.trayMenu.setWindowFlags(self.trayMenu.windowFlags()|Qt.FramelessWindowHint)
+
+		# 预加载
+		self.trayMenu.show()
+		self.trayMenu.hide()
 
 		# 设置托盘化菜单项
-		self.tray.setContextMenu(trayMenu)
+		self.tray.setContextMenu(self.trayMenu)
 		# 展示
 		self.tray.show()
 
 
 	# 宠物右键点击交互
 	def contextMenuEvent(self, event):
-		# 定义菜单
-		menu = QMenu(self)
-		# 定义菜单项
-		food = menu.addAction('召唤草莓')
-		food.setIcon(QIcon('./assets/food.png'))
-		menu.addSeparator()
-		if self.allowWalk:
-			walkSwitch = menu.addAction('禁止走路')
-		else:
-			walkSwitch = menu.addAction('允许走路')
-		if self.allowVideo:
-			videoSwitch = menu.addAction('禁用音频')
-		else:
-			videoSwitch = menu.addAction('启用音频')
-		quit = menu.addAction('退出')
-
-		action = menu.exec_(self.mapToGlobal(event.pos()))
-		if action == food:
-			self.food()
-		elif action == walkSwitch:
-			self.walkSwitch()
-		elif action == videoSwitch:
-			self.videoSwitch()
-		elif action == quit:
-			self.quit()
+		self.trayMenu.exec_(self.mapToGlobal(event.pos()))
 
 	def initPosition(self):
 		'''
@@ -479,6 +475,7 @@ class Flan(DesktopPet):
 		self.move(x,y)
 
 
+	is_follow_mouse = False
 	# 鼠标左键按下时, 宠物将和鼠标位置绑定
 	def mousePressEvent(self, event):
 		# 更改宠物状态为点击
@@ -537,8 +534,13 @@ class Flan(DesktopPet):
 			self.videoSwitchAction.setText('启用音频')
 
 	def quit(self):
+		if self.flag == self.DISAPPEAR: return
+		self.walkStep = 0
 		self.saveConfig()
-		self.quit()
+		self.disappear()
+
+	def exit(self):
+		self.destroy()
 		sys.exit()
 
 	def resetHeight(self):
